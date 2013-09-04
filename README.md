@@ -1,10 +1,9 @@
 # imdb
 
-A Clojure library designed to ... well, that part is up to you.
+Attempt to find degrees of separation of two actors in imdb.
 
-## Usage
+Currently locked out of imdb...
 
-FIXME
 
 ## License
 
