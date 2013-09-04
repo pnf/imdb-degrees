@@ -2,10 +2,17 @@
   (:require [clojure.data.priority-map :refer [priority-map]]
              [org.httpkit.client :as http]
              [net.cgrand.enlive-html :as html]
-))
+             [monger.core :as mg]
+             [monger.collection :as mc]
+
+)
+  (:import [com.mongodb MongoOptions ServerAddress]))
+
+(mg/connect! {:port 3333})
+(mg/set-db! (mg/get-db "imdb"))
 
 
-
+; need to fetch both actor and actress!!!
 (defn fetch-node-from-imdb*
   "Attacks the mobile version of the IMDB site to pull down information about an
   actor or film, to be specified like id=/name/nm123455/ or /title/tt2343243/
@@ -28,8 +35,22 @@
          doc (if (.startsWith id "/name") (filter #(re-find #"\(\d\d\d\d\)" (last %)) doc) doc)
          _ (println "Fetched" title)
          ]
-     [title (map first doc)]
+     {:title title :links (map first doc) :id id}
      ))
+
+(def allowed-links #{"/name/nm0000257/" "/name/nm0748620/" "/title/tt1655460/"})
+(defn restrict-links [links]
+  (filter #(allowed-links %) links)
+)
+
+
+(defn fetch-node-from-mongo [id]
+  (let [node (or (first (mc/find-maps "nodes" {:id id}))
+                 (mc/insert-and-return "nodes" (fetch-node-from-imdb* id)))]
+    ;(assoc node :d 999999 :links (restrict-links (:links node)))
+    (assoc node :d 999999)
+    )
+)
 
 (def fetch-node-from-imdb (memoize fetch-node-from-imdb*))
 
@@ -39,12 +60,10 @@
    where distance is initialized to be something large.
    Returns [newgraph entry]."
   [graph id]
-  (let [ret (graph id)
-        ret (if ret [graph ret]
-                (let [[title links] (fetch-node-from-imdb id)
-                      ret {:id id :links links :title title :name name :d 99999999 }]
-                  [(assoc graph id ret) ret]))]
-    ret))
+  (if-let [node (graph id)]
+    [graph node]
+    (let [node (fetch-node-from-mongo id)]
+      [(assoc graph id node) node])))
 
 ; return updated graph
 (defn update-distance
@@ -52,7 +71,7 @@
 Returns the updated graph."
   [di graph id]
   (let [[graph node] (fetch-node-from-graph graph id)
-        ret (if (< (:d node) di)  graph
+        ret (if (<= (:d node) di)  graph
           (assoc-in graph [id :d] (inc di)))
         ]
     ret
@@ -64,13 +83,12 @@ Returns the updated graph."
    queue is a priority queue of id=>distance, containing entries only for unvisited
    nodes.  We will use this to determine what to visit next, Dijkstra style."
   [graph queue id]
-  (println "Visiting" id queue)
+  (println "Visiting" id)
   (let [[graph entry] (fetch-node-from-graph graph id)
         di            (:d entry)
         links         (:links entry)
         links	      (filter #(nil? (:visited (graph %))) links)
         graph         (reduce (partial update-distance di) graph links)
-        ; _ (println "About to reduce queue")
         queue         (reduce (fn [q id] (assoc q id (:d (graph id)))) queue links)
         graph         (assoc-in graph [id :visited] true)
         ]
@@ -93,14 +111,11 @@ Returns the updated graph."
                 ;closest-req      (peek queue)
                 ; Absolutely hideous brute force search for closest node.
                 closest         (reduce (fn ([a b] (if (< (second a) (second b)) a b))) queue)
-                _  (println "Closest was" closest)
+                _  (println "Closest was" closest (count queue))
                 closest         (first closest)
                 ;queue           (pop queue)
-                queue           (dissoc queue closest)
                 ]
             (if (empty? queue)
                 ;(nil? closest-req)
                 "Couldn't find it"
-                (recur graph queue closest)))))))
-
-; 
+                (recur graph (dissoc queue closest) closest)))))))
