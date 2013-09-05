@@ -11,7 +11,6 @@
 (mg/connect! {:port 3333})
 (mg/set-db! (mg/get-db "imdb"))
 
-
 ; need to fetch both actor and actress!!!
 (defn fetch-node-from-imdb*
   "Attacks the mobile version of the IMDB site to pull down information about an
@@ -20,23 +19,29 @@
   format as the id.  Links are to films if the id was an actor, or to actors if the
   id was a film.  In the former case, we attempt to reap only films and not TV shows."
   [id]
-   (let [url (if  (.startsWith id "/name") ; /title
-               (str "http://m.imdb.com" id "filmotype/actor")
-               (str "http://m.imdb.com" id "fullcredits/cast"))
-         _ (println "Fetching" url)
-         doc (http/request {:url url :method :get} identity)
-           (if (not= (:status @doc) 200) (throw (Exception. (str "Got bad status: " @doc))))
-         doc (html/html-resource (java.io.StringReader. (:body @doc)))
-         title  (:content  (first (html/select doc [:title])))
-         doc (html/select doc [:div.title])
-         doc (map (fn [e]
-                    [(-> e :content second :attrs :href)
-                     (-> e :content last)]) doc)
-         doc (if (.startsWith id "/name") (filter #(re-find #"\(\d\d\d\d\)" (last %)) doc) doc)
-         _ (println "Fetched" title)
-         ]
-     {:title title :links (map first doc) :id id}
-     ))
+   (let [urls (if  (.startsWith id "/name") ; /title
+                [(str "http://m.imdb.com" id "filmotype/actor")
+                 (str "http://m.imdb.com" id "filmotype/actress")]
+                [ (str "http://m.imdb.com" id "fullcredits/cast")])
+         _ (println "Fetching" urls)
+         docs (for [url urls]
+                (let [doc (http/request {:url url :method :get} identity)
+                        (if (not= (:status @doc) 200) (throw (Exception. (str "Got bad status: " @doc))))
+                      doc (html/html-resource (java.io.StringReader. (:body @doc)))
+                      title  (:content  (first (html/select doc [:title])))
+                      title  (clojure.string/replace (apply str title) #"\n" "")
+                      doc (html/select doc [:div.title])
+                      doc (map (fn [e]
+                                 [(-> e :content second :attrs :href)
+                                  (-> e :content last)]) doc)
+                      doc (if (.startsWith id "/name") (filter #(re-find #"\(\d\d\d\d\)" (last %)) doc) doc)
+                      _ (println "Fetched" title)]
+                  {:title title :links (map first doc) :id id}
+                  ))
+         title   (:title (first docs))
+         links   (apply clojure.set/union (map #(set (:links %)) docs))]
+     {:title title :links links :id id}
+))
 
 (def allowed-links #{"/name/nm0000257/" "/name/nm0748620/" "/title/tt1655460/"})
 (defn restrict-links [links]
