@@ -11,7 +11,6 @@
 (mg/connect! {:port 3333})
 (mg/set-db! (mg/get-db "imdb"))
 
-; need to fetch both actor and actress!!!
 (defn fetch-node-from-imdb
   "Attacks the mobile version of the IMDB site to pull down information about an
   actor or film, to be specified like id=/name/nm123455/ or /title/tt2343243/
@@ -43,18 +42,16 @@
      {:title title :links links :id id}
 ))
 
-
+; Restrict links for testing.
 ;(def allowed-links #{"/name/nm0000257/" "/name/nm0748620/" "/title/tt1655460/"})
 ;(defn restrict-links [links]  (filter #(allowed-links %) links))
-
 
 (defn fetch-node-from-mongo [id]
   (let [node (or (first (mc/find-maps "nodes" {:id id}))
                  (mc/insert-and-return "nodes" (fetch-node-from-imdb id)))]
     ;(assoc node :d 999999 :links (restrict-links (:links node)))
-    (assoc node :d 999999)
-    )
-)
+    (assoc node :d 999999 :path (list id))
+    ))
 
 (defn fetch-node-from-graph
   "Fetch a node from the current graph, adding it from imdb if necessary.
@@ -67,15 +64,16 @@
     (let [node (fetch-node-from-mongo id)]
       [(assoc graph id node) node])))
 
-; return updated graph
 (defn update-distance
   "Update :d field in graph node id to be one greater than di (if that will reduce it).
 Returns the updated graph."
-  [di graph id]
-  (let [[graph node] (fetch-node-from-graph graph id)
+  [entry graph id]
+  (let [di (:d entry)
+        [graph node] (fetch-node-from-graph graph id)
         ret (if (<= (:d node) di)  graph
-          (assoc-in graph [id :d] (inc di)))
-        ]
+                (-> graph
+                    (assoc-in [id :d] (inc di))
+                    (assoc-in [id :path] (conj (:path entry) id))))]
     ret
     ))
 
@@ -90,7 +88,7 @@ Returns the updated graph."
         di            (:d entry)
         links         (:links entry)
         links	      (filter #(nil? (:visited (graph %))) links)
-        graph         (reduce (partial update-distance di) graph links)
+        graph         (reduce (partial update-distance entry) graph links)
         queue         (reduce (fn [q id] (assoc q id (:d (graph id)))) queue links)
         graph         (assoc-in graph [id :visited] true)
         ]
@@ -102,30 +100,30 @@ Returns the updated graph."
   [id target]
     (let [ [graph node]  (fetch-node-from-graph {} id)
            graph         (assoc-in graph [id :d] 0)
-          ;queue         (priority-map)
-           queue         {}]
+           queue         (priority-map)
+           ;queue         {}
+]
       (loop [graph  graph
              queue  queue
              id     id]
         (if (= id target)
           (graph id)
           (let [[graph queue]    (visit-node graph queue id)
-                ;closest-req      (peek queue)
-                ; Absolutely hideous brute force search for closest node.
-                closest         (reduce (fn ([a b] (if (< (second a) (second b)) a b))) queue)
+                closest        (peek queue)
                 _  (println "Closest was" closest (count queue))
                 closest         (first closest)
-                ;queue           (pop queue)
                 ]
             (if (empty? queue)
-                ;(nil? closest-req)
-                "Couldn't find it"
-                (recur graph (dissoc queue closest) closest)))))))
+                "Couldn't find a path!"
+                (recur graph
+                       (pop queue)
+                       closest)))))))
 
-#_(defn enqueue [pm] (pop (reduce (fn [q p] (assoc q (first p) (second p)))
-                                pm
-                                (map-indexed (fn [a b] [a b]) (repeatedly 1000 (partial rand-int 20))))))
+; Useful when locked out by IMDB.
+;(count (repeatedly 10 (fn [] (try (find-distance "/name/nm0641304/" "/name/nm3381950/") (catch Exception e (do (println "Pausing after exception") (Thread/sleep 60000)))))))
 
-;(peek (nth (iterate enqueue (priority-map)) 1000))
-
-
+#_(  ; stress test the queue
+ (defn enqueue [pm] (pop (reduce (fn [q p] (assoc q (first p) (second p)))
+                                 pm
+                                 (map-indexed (fn [a b] [a b]) (repeatedly 1000 (partial rand-int 20))))))
+ (peek (nth (iterate enqueue (priority-map)) 1000)))
