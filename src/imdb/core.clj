@@ -12,7 +12,7 @@
 (mg/set-db! (mg/get-db "imdb"))
 
 ; need to fetch both actor and actress!!!
-(defn fetch-node-from-imdb*
+(defn fetch-node-from-imdb
   "Attacks the mobile version of the IMDB site to pull down information about an
   actor or film, to be specified like id=/name/nm123455/ or /title/tt2343243/
   (note slashes).  Returns vector of [title [links]] where links are in the same
@@ -43,21 +43,18 @@
      {:title title :links links :id id}
 ))
 
-(def allowed-links #{"/name/nm0000257/" "/name/nm0748620/" "/title/tt1655460/"})
-(defn restrict-links [links]
-  (filter #(allowed-links %) links)
-)
+
+;(def allowed-links #{"/name/nm0000257/" "/name/nm0748620/" "/title/tt1655460/"})
+;(defn restrict-links [links]  (filter #(allowed-links %) links))
 
 
 (defn fetch-node-from-mongo [id]
   (let [node (or (first (mc/find-maps "nodes" {:id id}))
-                 (mc/insert-and-return "nodes" (fetch-node-from-imdb* id)))]
+                 (mc/insert-and-return "nodes" (fetch-node-from-imdb id)))]
     ;(assoc node :d 999999 :links (restrict-links (:links node)))
     (assoc node :d 999999)
     )
 )
-
-(def fetch-node-from-imdb (memoize fetch-node-from-imdb*))
 
 (defn fetch-node-from-graph
   "Fetch a node from the current graph, adding it from imdb if necessary.
@@ -124,3 +121,11 @@ Returns the updated graph."
                 ;(nil? closest-req)
                 "Couldn't find it"
                 (recur graph (dissoc queue closest) closest)))))))
+
+#_(defn enqueue [pm] (pop (reduce (fn [q p] (assoc q (first p) (second p)))
+                                pm
+                                (map-indexed (fn [a b] [a b]) (repeatedly 1000 (partial rand-int 20))))))
+
+;(peek (nth (iterate enqueue (priority-map)) 1000))
+
+
