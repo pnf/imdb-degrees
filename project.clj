@@ -3,11 +3,21 @@
   :url "http://example.com/FIXME"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
+  :repositories {"sonatype-oss-public" "https://oss.sonatype.org/content/groups/public/"}
+
   :dependencies [[org.clojure/clojure "1.5.1"]
                  [http-kit "2.1.10"]
                  [enlive "1.1.4"]
                  [com.novemberain/monger "1.5.0"]
-                 [org.clojure/data.priority-map "0.0.2"]]
+                 [org.clojure/data.priority-map "0.0.2"]
+                 [org.clojure/core.typed "0.2.5"]
+]
+
+  :plugins [[lein-typed "0.3.0"]]
+
+  :core.typed {:check [imdb.core]}
+  ; "lein typed check"
+
 
   :jvm-opts ^:replace ["-Xmx1g" "-server"]
 )
