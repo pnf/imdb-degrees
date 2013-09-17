@@ -5,17 +5,42 @@
              [monger.core :as mg]
              [monger.collection :as mc]
              [clojure.core.typed :as t]
-)
-  (:import [com.mongodb MongoOptions ServerAddress]))
+             )
+  (:import [com.mongodb MongoOptions ServerAddress]
+             [clojure.lang Keyword]))
 
-(t/ann ^:no-check monger.core/connect! [Any -> Any])
-(t/ann ^:no-check monger.core/set-db! [Any -> Any])
-(t/ann ^:no-check monger.core/get-db [Any -> Any])
+(t/ann ^:no-check monger.core/connect!
+        (Fn [(HMap :optional {:port t/AnyInteger :host String} :complete? true) -> (t/Option com.mongodb.MongoClient)]
+            [-> (t/Option com.mongodb.MongoClient)]))
+(t/ann ^:no-check monger.core/get-db [String -> com.mongodb.DBApiLayer])
+(t/ann ^:no-check monger.core/set-db! [com.mongodb.DBApiLayer -> com.mongodb.gridfs.GridFS])
+
 (mg/connect! {:port 3333})
 (mg/set-db! (mg/get-db "imdb"))
-(t/ann ^:no-check clojure.set/union (Fn [t/Set * -> t/Set]))
 
-(t/ann ^:no-check clojure.core/assoc-in [(HMap) (t/Vec Any) Any -> (HMap)])
+;; Default annotation of assoc
+;;(t/cf (assoc (t/ann-form {:foo "four"} (t/Map Keyword String)) "bar" 4 )
+;;     ==> [(clojure.lang.IPersistentMap (U (Value "bar") Keyword) (U String (Value 4))) {:then tt, :else ff}
+;;(t/cf (assoc (t/ann-form {"a" :a} (t/Map String Keyword)) (t/ann-form 1 Integer) (t/ann-form "1" String)))
+;;     ==> [(clojure.lang.IPersistentMap (U Integer String) (U Keyword String)) {:then tt, :else ff}]
+
+;; Bounded version - not actually of much use for HMaps
+(t/ann ^:no-check assoc2 (All [k v [k2 :> k] [v2 :> v]]
+                             (Fn [(t/Map k v) k2 v2 -> (t/Map k2 v2)]
+                                 [(t/Vec v) t/AnyInteger v2 -> (t/Vec v2)])))
+(def assoc2 assoc)
+
+;; This signature allows unions of arbitrary types
+(t/ann ^:no-check clojure.set/union (All [a] (Fn [(t/Set a) * -> (t/Set a)])))
+;; (t/cf (clojure.set/union (t/ann-form #{1 2} (t/Set Integer)) (t/ann-form #{:a :b} (t/Set Keyword))))
+;;     ==> (t/Set (U Keyword Integer))
+
+;; This signature allows only same-type unions
+#_(t/ann clojure.set/union (All [x [x1 :< x :> x]]
+                          (Fn [(t/Set x) (t/Set x1) * -> (t/Set x1)])))
+;; (t/cf (clojure.set/union (t/ann-form #{1 2} (t/Set Integer)) (t/ann-form #{:a :b} (t/Set Keyword))))
+;; AssertionError Assert failed: 1: Inferred type Keyword is not between bounds Integer and Integer
+;; (and (subtype? inferred upper-bound) (subtype? lower-bound inferred))  clojure.core.typed.cs-gen/subst-gen/fn--10414 (cs_gen.clj:1333)
 
 
 (t/ann ^:no-check org.httpkit.client/request ['{:url String :method (Value :get)}, [Any -> Any] -> (t/Atom1 '{:status Number :body String})])
@@ -27,44 +52,47 @@
     doc
     ))
 
-(t/ann ^:no-check net.cgrand.enlive-html/select [(HMap) (t/Vec Any) -> (HMap)])
-
 (t/def-alias Node "Node representing an actor or film"
   (HMap :mandatory {:id String 
                     :links (t/Set String)
                     :title String}
-        :optional {:d t/AnyInteger}))
+        :optional {:distance t/AnyInteger
+                   :path (t/Seq String)}
+        :complete? true))
 
-(t/def-alias Graph "Graph of tokens to nodes"
-  (clojure.lang.IPersistentMap String Node))
+(t/def-alias Graph "Graph of tokens to nodes" (t/Map String Node))
 
-;(t/ann java.lang.String/startsWith [String -> Boolean])
+;; The only ambiguity for core.typed is whether or not this will return nil.
 (t/non-nil-return java.lang.String/startsWith :all)
-(t/ann ^:no-check net.cgrand.enlive-html/html-resource [java.io.Reader -> '{}])
+
+(t/def-alias Resource "Parsed DOM resource"
+  (Rec [x] (t/Map Keyword (U String x (t/Seq x)))))
+(t/ann ^:no-check net.cgrand.enlive-html/html-resource [java.io.Reader -> Resource])
+(t/ann ^:no-check net.cgrand.enlive-html/select [Resource (t/Vec Keyword) -> (t/Seq Resource) ])
+
 ;(t/ann clojure.core/set [ (t/Seqable Any) -> t/Set])
 (t/ann ^:no-check clojure.string/replace 
        [String
         (U String Character java.util.regex.Pattern) 
         (U String Character [(t/Seq String) -> String]) -> String ])
 
-(t/ann ^:no-check resource->title [(HMap) -> String])
-(t/tc-ignore (defn resource->title [doc]
-               (-> doc
-                   (as-> % (:content (first (html/select % [:title]))) )
-                   (as-> % (clojure.string/replace (apply str %) #"\n" "")))))
-
+(t/ann resource->title [Resource -> String])
+(defn resource->title [doc]
+  (-> doc
+      (as-> % (:content (first (html/select % [:title]))) )
+      (as-> % (clojure.string/replace (apply str %) #"\n" ""))))
 
 ;; Extract a list of the hrefs over a bunch of items like this:
 ;;     <div class="title"> 
 ;;        <a href="/title/tt0060438/" onClick="_gaq.push(['_trackEvent', 'Find', '', '']);">A Funny Thing Happened on the Way to the Forum</a> (1966)
 ;;    </div>
-
-(t/ann ^:no-check resource->links [String (HMap) -> (t/Set String)])
+;; Punt on type-checking for the deep structure of the DOM.
+(t/ann ^:no-check resource->links [String Resource -> (t/Set String)])
 (defn resource->links [id resource]
   (-> resource
       (html/select [:div.title])
       ;; Turn into list of pairs [href, title]
-      (as-> doc (map (t/fn> :- (t/Seq String) [e :- (HMap)]
+      (as-> doc (map (t/fn> :- (t/Seq String) [e :- Resource]
                             [(-> e :content second :attrs :href)
                              (-> e :content last)]) doc))
       ;; If this is a list of performances, keep only ones that look like movies
@@ -77,8 +105,7 @@
 
 (t/ann ^:no-check merged-links [(t/Seq Node) -> (t/Set String)])
 (defn merged-links [nodes]  
-  (apply clojure.set/union :links nodes)
-  )
+  (apply clojure.set/union (map :links nodes)))
 
 (t/ann fetch-node-from-imdb [String -> Node])
 (defn fetch-node-from-imdb
@@ -113,14 +140,13 @@
 (t/def-alias MongoRecord "Mongo key value pairs"
   (clojure.lang.IPersistentMap Any Any))
 
-(t/ann ^:no-check assure-node [MongoRecord -> Node])
-(defn assure-node [r]
-  (assert string? (:id r))
-  (assert string? (:name r))
-  (assert seq? (:links r))
-  (assert (every? string? (:links r)))
-  (assoc r :links (set (:links r))))
-
+(t/ann  assure-node [MongoRecord -> Node])
+(defn ^:no-check assure-node [r]
+  (assert (string? (:id r)))
+  (assert (string? (:title r)))
+  (assert (coll? (:links r)))
+  ;(assert (every? string? (:links r)))
+  r)
 
 
 (t/ann ^:no-check monger.collection/find-maps [String  MongoRecord -> (t/Vec MongoRecord)])
@@ -130,13 +156,13 @@
   (let [node (assure-node (or (first (mc/find-maps "nodes" {:id id}))
                               (mc/insert-and-return "nodes" (fetch-node-from-imdb id))
                               ))]
-    (assure-node (assoc node :d 999999 :path (list id)))))
+    (assure-node (assoc node :distance 999999 :path (list id)))))
 
 
 (t/ann fetch-node-from-graph [Graph String -> (Vector* Graph Node)])
 (defn fetch-node-from-graph
   "Fetch a node from the current graph, adding it from imdb if necessary.
-   Entries in the graph are id ==> {:id id :links links :title title :d dist },
+   Entries in the graph are id ==> {:id id :links links :title title :distance dist },
    where distance is initialized to be something large.
    Returns [newgraph entry]."
   [graph id]
@@ -146,86 +172,79 @@
       [(assoc graph id node) node])))
 
 (t/ann distance [Node -> t/AnyInteger])
-(defn distance [node] (or (:d node) 999999999))
+(defn distance [node] (or (:distance node) 999999999))
 
-(t/ann assoc-in-graph [Graph (t/Vec Any) Any -> Graph])
-(t/tc-ignore (defn assoc-in-graph [g sel v] (assoc-in g sel v)))
-
-(t/ann ^:unchecked coerce-list-string [Any -> (clojure.lang.IPersistentList String)])
-(t/tc-ignore (defn coerce-list-string [x] x))
+;; Type-correct assignments to node fields
+(t/ann ^:no-check set-node
+       (Fn [Graph String (U ':title ':id) String -> Graph]
+           [Graph String ':distance t/AnyInteger -> Graph]
+           [Graph String ':links (t/Set String) -> Graph]
+           [Graph String ':visited Boolean -> Graph]
+           [Graph String ':path (t/Coll String) -> Graph]))
+(defn set-node [g id field v] (assoc-in g [id field] v))
 
 (t/ann update-distance [Node Graph String -> Graph])
 (defn update-distance
-  "Update :d field in graph node id to be one greater than di (if that will reduce it).
+  "Update :distance field in graph node id to be one greater than di (if that will reduce it).
 Returns the updated graph."
   [entry graph id]
   (let [di (distance entry)
         [graph node] (fetch-node-from-graph graph id)
-        _ (assert integer? (:d node))
-        ret (if (<= (distance node) di)  graph
+        path (or (:path entry) '())]
+    (if (<= (distance node) di)  graph
                 (-> graph
-                    (assoc-in-graph [id :d] (inc di))
-                    (assoc-in-graph [id :path] (conj (coerce-list-string (:path entry)) id))))]
-    ret
-    ))
+                    (set-node id :distance (inc di))
+                    (set-node id :path (conj path id))))))
 
-(t/def-alias PriorityMap clojure.data.priority_map.PersistentPriorityMap)
+(t/ann-datatype clojure.data.priority-map.PersistentPriorityMap
+                [priority->set-of-items :- (HMap)
+                 item->priority :- (HMap)
+                 _meta :- (HMap)])
 
-(t/ann set-visited [Graph -> Graph])
-(t/tc-ignore (defn set-visited [g]) )
 
-(t/ann ^:no-check update-queue [PriorityMap Graph String (t/Seqable String) -> PriorityMap])
-(t/tc-ignore (defn update-queue [queue graph id links] 
-               (reduce (fn [q id] (assoc-queue q id (:d (graph id)))) queue links)))
+(t/def-alias Queue (t/Map String t/AnyInteger))
+(t/ann ^:no-check clojure.data.priority-map/priority-map [ -> Queue])
+(t/ann ^:no-check pmap-assoc [Queue String (U nil t/AnyInteger) -> Queue])
+(def pmap-assoc assoc)
+(t/ann ^:no-check pmap-peek [Queue -> (Vector* String t/AnyInteger)])
+(def pmap-peek peek)
+(t/ann ^:no-check pmap-pop [Queue -> Queue])
+(def pmap-pop pop)
+
+(t/ann update-queue [Queue Graph String (t/Seqable String) -> Queue])
+(defn update-queue [queue graph id links] 
+  (reduce (t/fn> :- Queue [q :- Queue id :- String]
+                 (pmap-assoc q id (:distance (get graph id)))) queue links))
 
 ; visit node and update distances in all unvisited, connected nodes
-(t/ann visit-node [Graph PriorityMap String ->
-                   (Vector* Graph PriorityMap)])
+(t/ann visit-node [Graph Queue String -> (Vector* Graph Queue)])
 (defn visit-node
-  "Visits node id, and update the :d fields of its neighbors.
+  "Visits node id, and update the :distance fields of its neighbors.
    queue is a priority queue of id=>distance, containing entries only for unvisited
    nodes.  We will use this to determine what to visit next, Dijkstra style."
   [graph queue id]
-  (println "Visiting" id)
   (let [[graph entry] (fetch-node-from-graph graph id)
-        di            (:d entry)
-        links         (:links entry)
-        links	      (filter #(nil? (:visited (graph %))) links)
+        links	      (filter #(nil? (:visited (graph %))) (:links entry))
         graph         (reduce (partial update-distance entry) graph links)
         queue         (update-queue queue graph id links)
-        graph         (assoc-in-graph graph [id :visited] true)
-        ]
+        graph         (set-node graph id :visited true)]
     [graph queue]))
 
+
 (t/ann find-distance [String String -> (t/Option Any)])
-(t/ann ^:no-check clojure.data.priority-map/priority-map [ -> clojure.data.priority_map.PersistentPriorityMap])
 (defn find-distance 
   "E.g. (find-distance \"/name/nm0000257/\" \"/name/nm0000295/\")
    Use Dijkstra algorithm to find shortest path from id to target."
   [id target]
     (let [ [graph node]  (fetch-node-from-graph {} id)
-           graph         (assoc-in-graph graph [id :d] 0)
-           queue         (priority-map)
-]
+           graph         (set-node graph id :distance 0)
+           queue         (priority-map)]
       (t/loop> [graph :- Graph graph
-                queue :-  clojure.data.priority_map.PersistentPriorityMap queue
-                id    :-  String id]
-        (if (= id target)
-          (get graph id)  ; otherwise Cannot invoke type: (HMap :mandatory {})
-          (let [[graph queue]    (visit-node graph queue id)
-                closest        (peek queue)
-                closest         (first closest)]
+                queue :- Queue queue
+                id    :- String id]
+        (if (= id target) (get graph id)
+          (let [[graph queue]   (visit-node graph queue id)
+                closest         (first (pmap-peek queue))]
             (if (empty? queue)
                 "Couldn't find a path!"
-                (recur graph
-                       (pop queue)
-                       closest)))))))
-
-; Useful when locked out by IMDB.
-;(count (repeatedly 10 (fn [] (try (find-distance "/name/nm0641304/" "/name/nm3381950/") (catch Exception e (do (println "Pausing after exception") (Thread/sleep 60000)))))))
-
-#_(  ; stress test the queue
- (defn enqueue [pm] (pop (reduce (fn [q p] (assoc q (first p) (second p)))
-                                 pm
-                                 (map-indexed (fn [a b] [a b]) (repeatedly 1000 (partial rand-int 20))))))
- (peek (nth (iterate enqueue (priority-map)) 1000)))
+                (recur graph (pmap-pop queue) closest)))))))
