@@ -6,17 +6,15 @@
   :repositories {"sonatype-oss-public" "https://oss.sonatype.org/content/groups/public/"}
 
   :dependencies [[org.clojure/clojure "1.5.1"]
+                 [clj-stacktrace "0.2.5"]
                  [http-kit "2.1.10"]
                  [enlive "1.1.4"]
+                 [org.clojure/core.typed "0.2.6"]
                  [com.novemberain/monger "1.5.0"]
-                 [org.clojure/data.priority-map "0.0.2"]
-                 [org.clojure/core.typed "0.2.5"]
-]
+                 [org.clojure/data.priority-map "0.0.2"]]
 
   :plugins [[lein-typed "0.3.0"]]
-
-  :core.typed {:check [imdb.core]}
-  ; "lein typed check"
+  :core.typed {:check [imdb.core]}  ; "lein typed check"
 
 
   :jvm-opts ^:replace ["-Xmx1g" "-server"]
