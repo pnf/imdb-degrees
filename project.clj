@@ -9,7 +9,9 @@
                  [clj-stacktrace "0.2.5"]
                  [http-kit "2.1.10"]
                  [enlive "1.1.4"]
-                 [org.clojure/core.typed "0.2.6"]
+                 ;[org.clojure/core.typed "0.2.6"]
+                 [org.clojure/core.typed "0.2.13"]
+                 [org.clojure/core.async "0.1.242.0-44b1e3-alpha"]
                  [com.novemberain/monger "1.5.0"]
                  [org.clojure/data.priority-map "0.0.2"]]
 
