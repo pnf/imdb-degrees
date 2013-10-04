@@ -59,10 +59,10 @@
 (defn imax [c] (second (apply max-key first (map vector c (range (count c))))))
 
 (t/ann ncats Long)
-(def ncats 25)
+(def ncats 10)
 
 (t/ann node->cat [Node -> Long])
-(defn node->cat [node]  (long (/ (or (get node :metacritic-score) 0) ncats)))
+(defn node->cat [node]  (long (/ (- (or (get node :metacritic-score) 0) 0.001) ncats)))
 
 (t/ann guess-cat [A2C2W Node -> Long])
 (defn guess-cat [acw node]
@@ -112,3 +112,8 @@
 #_(def nodes (mc/find-maps "nodes"
                            {:metacritic-score {mo/$gte 0}
                             :id {mo/$regex "^\\/title"}}))
+
+
+(t/ann ^:no-check conj2 [(t/Set t/Num) t/Num -> (t/Set Num)])
+(def conj2 conj)
+(reduce conj2 #{} [1 2 3])

@@ -332,11 +332,13 @@ Returns the updated graph."
    (and (seq (:links node))
         (> (count (:links node)) 5))))
 
-(defn pillage [id pred]
+(defn pillage [id pred n-act]
   (loop [[id & ids] (list id nil)
          already    #{}]
     (let [node  (fetch-with-backoff id)
-          links (filter #(not (already %))  (:links node))
+          links (filter #(not (already %))  (take (if (= "film" (:type node)) n-act 1000) (:links node)))
           ids   (if (and (pred node) (seq links))
                   (apply conj ids links) ids)]
       (when (seq ids) (recur ids (conj already id))))))
+
+t/inst
