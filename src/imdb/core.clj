@@ -11,6 +11,7 @@
              [clojure.core.typed.async :as ta])
   (:import [com.mongodb MongoOptions ServerAddress]
              [clojure.lang Keyword]))
+
 (clojure.core.typed/typed-deps clojure.core.typed.async)
 
 (t/ann ^:no-check monger.core/connect!
@@ -313,18 +314,23 @@ Returns the updated graph."
 
 ; /name/nm0000148/ harrison ford
 
+(t/ann ^:no-check sleep-sec [t/AnyInteger -> nil])
+(defn sleep-sec [s] (Thread/sleep (* 1000 s)))
+
 (t/ann fetch-with-backoff [String -> Node])
 (defn fetch-with-backoff [id]
-  (loop [w 1]
+  (t/loop> [w :- t/AnyInteger 1]
     (or (try (fetch-node-from-mongo id)
              (catch Exception _ nil))
         (do 
           (println "Sleeping" w "after exception from" id)
-          (Thread/sleep (* 1000 w))
+          (sleep-sec w)
+          ;(Thread/sleep (long (* 1000 w)))
           (recur (* 2 w))))))
 
 ; Follow the tree only if there's a valid metacritic score, or this
 ; is an actor with more than 10 films.
+(t/ann with-metacritic [Node -> (U Boolean nil)])
 (defn with-metacritic [node]
   (or 
    (and (:metacritic-score node)
@@ -332,13 +338,21 @@ Returns the updated graph."
    (and (seq (:links node))
         (> (count (:links node)) 5))))
 
-(defn pillage [id pred n-act]
-  (loop [[id & ids] (list id nil)
-         already    #{}]
-    (let [node  (fetch-with-backoff id)
-          links (filter #(not (already %))  (take (if (= "film" (:type node)) n-act 1000) (:links node)))
-          ids   (if (and (pred node) (seq links))
-                  (apply conj ids links) ids)]
-      (when (seq ids) (recur ids (conj already id))))))
 
-t/inst
+;; Give up and don't type-check this. tc does not deal well with 
+;; emptiness inference.
+;; See http://dev.clojure.org/jira/browse/CTYP-84, (cf (seq '(1)) (t/NonEmptySeq Number))
+
+(t/ann ^:no-check pillage [String [Node -> Boolean] t/AnyInteger -> nil])
+(defn pillage [id pred n-act]
+  (t/loop> 
+   [[id & ids] :- (t/NonEmptySeqable String)  (list id)
+    already    :- (t/Set String)              #{}]
+   (let [node  (fetch-with-backoff id)
+         links (filter #(not (already %))
+                       (take (if (= "film" (:type node)) n-act 1000)
+                             (:links node)))
+         ids   (if (and (pred node) (seq links))
+                 (apply conj ids links) ids)]
+     (when (seq ids) (recur ids (conj already id))))))
+

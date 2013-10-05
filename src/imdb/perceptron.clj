@@ -50,6 +50,7 @@
 ;; Features are actors
 ;; Category
 
+; current weight, total weight, update time
 (t/def-alias Category t/AnyInteger)
 (t/def-alias A2C2W (t/Map String (t/Vec  t/Num)))
 (t/def-alias C2W (t/Vec t/Num))
@@ -67,7 +68,7 @@
 (t/ann guess-cat [A2C2W Node -> Long])
 (defn guess-cat [acw node]
   (imax (reduce (t/fn> :-  C2W
-                       [wa :- C2W ws :- (t/Option C2W)]
+                       [wa :- C2W,  ws :- (t/Option C2W)]
                        (if ws (vec (map + wa ws)) wa))
                 (vec (repeat ncats 0))
                 (map (t/fn> :- (t/Option C2W) [a :- String] (get acw a))
@@ -91,6 +92,10 @@
                                          (update-in-w [iwrong] dec)))))
           acw (:links node)))
 
+;(t/def-alias CC (All [a] (t/Coll a)))
+;(t/ann shuffle [CC -> CC])
+(t/ann ^:no-check clojure.core/shuffle (All [a] [(t/Coll a) -> (t/Coll a)]))
+
 (t/ann train [t/AnyInteger (t/Seqable Node) -> A2C2W])
 (defn train [n nodes]
   (reduce (t/fn> :- A2C2W [acw :- A2C2W,  node :- Node]
@@ -100,7 +105,7 @@
                   (update-weights acw node cat guess))))
           {} (apply concat (repeatedly n #(shuffle nodes)))))
 
-(t/ann ^:no-check rms [A2CW (t/Seqable Node) -> t/Num])
+(t/ann ^:no-check rms [A2C2W (t/Seqable Node) -> t/Num])
 (defn rms [acw nodes]
   (let [es   (map (fn [node] (double (- (guess-cat acw node) (node->cat node)))) nodes)
         n    (count nodes)
@@ -114,6 +119,3 @@
                             :id {mo/$regex "^\\/title"}}))
 
 
-(t/ann ^:no-check conj2 [(t/Set t/Num) t/Num -> (t/Set Num)])
-(def conj2 conj)
-(reduce conj2 #{} [1 2 3])
